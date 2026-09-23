@@ -20,176 +20,177 @@ import fr.samflix.vaniametrics.api.MetricRegistry;
 import fr.samflix.vaniametrics.api.Platform;
 
 /**
- * Le relevé EssentialsX.
+ * EssentialsX collector.
  *
- * <p>EN FOND, à cause du classement des soldes : {@code calculateBalanceTopMapAsync()} lit tous
- * les comptes. On ne le DÉCLENCHE pas — EssentialsX le rafraîchit de lui-même — on lit son cache
- * et on publie son âge, pour qu'un total figé se voie au lieu de passer pour une économie stable.
+ * <p>Runs in the background because of the balance top ranking: {@code
+ * calculateBalanceTopMapAsync()} reads every account. We don't trigger it — EssentialsX
+ * refreshes it on its own — we read its cache and publish its age, so a stale total shows up
+ * instead of passing for a stable economy.
  *
- * <p>LE COEFFICIENT DE GINI mérite son nom savant : il dit en un seul nombre si l'économie se
- * concentre chez trois joueurs. 0 = tout le monde a autant, 1 = un seul a tout. C'est le genre de
- * chose qu'un classement des dix premiers ne montre jamais.
+ * <p>The Gini coefficient says in one number whether the economy is concentrated in a handful of
+ * players. 0 = everyone has the same, 1 = one player has everything. It's the kind of thing a
+ * top-ten ranking never shows.
  */
 public final class EssentialsCollector implements Collector {
 
-	private final Platform plateforme;
+	private final Platform platform;
 
 	private Gauge afk;
-	private Histogram afkDuree;
+	private Histogram afkSeconds;
 	private Gauge total;
-	private Gauge comptes;
+	private Gauge accounts;
 	private Gauge quantiles;
 	private Gauge gini;
-	private Gauge ageCache;
+	private Gauge cacheAge;
 
-	public EssentialsCollector(Platform plateforme) {
-		this.plateforme = plateforme;
+	public EssentialsCollector(Platform platform) {
+		this.platform = platform;
 	}
 
 	@Override
-	public String nom() {
+	public String name() {
 		return "essentials";
 	}
 
 	@Override
-	public String origine() {
+	public String source() {
 		return "EssentialsX";
 	}
 
 	@Override
-	public boolean enFond() {
+	public boolean isBackground() {
 		return true;
 	}
 
 	@Override
-	public long intervalleSecondes() {
+	public long intervalSeconds() {
 		return 60;
 	}
 
 	@Override
-	public void declarer(MetricRegistry r) {
-		afk = r.gauge("server_players_afk", "Joueurs connectés mais inactifs.");
-		afkDuree = r.histogram("server_players_afk_seconds",
-				"Depuis combien de temps ils le sont. Distingue « trois joueurs partis deux "
-						+ "minutes » de « trois joueurs partis six heures ».",
-				Histogram.SECONDES_SESSION);
+	public void declare(MetricRegistry r) {
+		afk = r.gauge("server_players_afk", "Players connected but idle.");
+		afkSeconds = r.histogram("server_players_afk_seconds",
+				"How long they've been idle. Distinguishes \"three players away for two "
+						+ "minutes\" from \"three players away for six hours\".",
+				Histogram.SESSION_SECONDS);
 		total = r.gauge("economy_total",
-				"Argent en circulation, tous comptes confondus.", "currency");
-		comptes = r.gauge("economy_accounts", "Comptes ayant un solde.", "currency");
+				"Money in circulation, across all accounts.", "currency");
+		accounts = r.gauge("economy_accounts", "Accounts with a balance.", "currency");
 		quantiles = r.gauge("economy_balance",
-				"Répartition des soldes. quantile = p50|p90|p99|max.", "currency", "quantile");
+				"Balance distribution. quantile = p50|p90|p99|max.", "currency", "quantile");
 		gini = r.gauge("economy_gini",
-				"Concentration de la richesse, de 0 (égalité) à 1 (un seul détenteur).", "currency");
-		ageCache = r.gauge("economy_cache_age_seconds",
-				"Âge du classement d'EssentialsX. S'il monte sans fin, le total affiché est figé.",
+				"Wealth concentration, from 0 (equal) to 1 (one holder).", "currency");
+		cacheAge = r.gauge("economy_cache_age_seconds",
+				"Age of EssentialsX's ranking cache. If it keeps rising, the displayed total is stale.",
 				"currency");
 	}
 
 	@Override
-	public void relever(MetricRegistry r) {
+	public void collect(MetricRegistry r) {
 		Essentials ess = (Essentials) Bukkit.getPluginManager().getPlugin("Essentials");
 		if (ess == null) {
 			return;
 		}
 
-		int inactifs = 0;
-		long maintenant = System.currentTimeMillis();
-		for (Player j : Bukkit.getOnlinePlayers()) {
-			User u = ess.getUser(j);
+		int idle = 0;
+		long now = System.currentTimeMillis();
+		for (Player p : Bukkit.getOnlinePlayers()) {
+			User u = ess.getUser(p);
 			if (u != null && u.isAfk()) {
-				inactifs++;
-				long depuis = u.getAfkSince();
-				if (depuis > 0) {
-					afkDuree.observe((maintenant - depuis) / 1000.0);
+				idle++;
+				long since = u.getAfkSince();
+				if (since > 0) {
+					afkSeconds.observe((now - since) / 1000.0);
 				}
 			}
 		}
-		afk.set(inactifs);
+		afk.set(idle);
 
-		BalanceTop classement = Bukkit.getServicesManager().load(BalanceTop.class);
-		if (classement == null) {
+		BalanceTop top = Bukkit.getServicesManager().load(BalanceTop.class);
+		if (top == null) {
 			return;
 		}
-		// LE NOM RÉEL DE LA MONNAIE, pas « vault ». EssentialsX n'a qu'une économie — celle que
-		// Vault arbitre — mais c'est ExcellentEconomy qui la fournit, sous un nom qui lui est
-		// propre. Publier « vault » ferait deux étiquettes pour une même monnaie : ce total-ci
-		// et les flux du module excellenteconomy ne se rejoindraient jamais dans un graphique.
-		String monnaie = monnaieVault();
-		ageCache.set(classement.getCacheAge() <= 0
+		// The actual currency name, not "vault". EssentialsX has only one economy — the one
+		// Vault arbitrates — but ExcellentEconomy is the one providing it, under its own name.
+		// Publishing "vault" would create two labels for the same currency: this total and the
+		// excellenteconomy module's flows would never join up in a graph.
+		String currency = vaultCurrency();
+		cacheAge.set(top.getCacheAge() <= 0
 				? Double.NaN
-				: (maintenant - classement.getCacheAge()) / 1000.0, monnaie);
+				: (now - top.getCacheAge()) / 1000.0, currency);
 
-		BigDecimal somme = classement.getBalanceTopTotal();
-		if (somme != null) {
-			total.set(somme.doubleValue(), monnaie);
+		BigDecimal sum = top.getBalanceTopTotal();
+		if (sum != null) {
+			total.set(sum.doubleValue(), currency);
 		}
 
-		Map<java.util.UUID, BalanceTop.Entry> cache = classement.getBalanceTopCache();
+		Map<java.util.UUID, BalanceTop.Entry> cache = top.getBalanceTopCache();
 		if (cache == null || cache.isEmpty()) {
 			return;
 		}
-		double[] soldes = cache.values().stream()
+		double[] balances = cache.values().stream()
 				.mapToDouble(e -> e.getBalance().doubleValue())
 				.sorted()
 				.toArray();
-		comptes.set(soldes.length, monnaie);
-		quantiles.set(quantile(soldes, 0.50), monnaie, "p50");
-		quantiles.set(quantile(soldes, 0.90), monnaie, "p90");
-		quantiles.set(quantile(soldes, 0.99), monnaie, "p99");
-		quantiles.set(soldes[soldes.length - 1], monnaie, "max");
-		gini.set(gini(soldes), monnaie);
+		accounts.set(balances.length, currency);
+		quantiles.set(quantile(balances, 0.50), currency, "p50");
+		quantiles.set(quantile(balances, 0.90), currency, "p90");
+		quantiles.set(quantile(balances, 0.99), currency, "p99");
+		quantiles.set(balances[balances.length - 1], currency, "max");
+		gini.set(gini(balances), currency);
 	}
 
 	/**
-	 * Le nom de la monnaie arbitrée par Vault, en minuscules.
+	 * The name of the currency Vault arbitrates, lowercased.
 	 *
-	 * <p>Résolu à chaque relevé et non mis en cache : un plugin d'économie rechargé à chaud peut
-	 * changer de monnaie principale, et le relevé est en fond toutes les minutes — ça ne coûte
-	 * rien. « vault » en dernier recours, pour que l'étiquette ne soit jamais vide.
+	 * <p>Resolved on every collect and not cached: a hot-reloaded economy plugin can change its
+	 * primary currency, and the collector runs in the background every minute — it costs
+	 * nothing. "vault" as a last resort, so the label is never empty.
 	 */
 	@SuppressWarnings("deprecation")
-	private String monnaieVault() {
+	private String vaultCurrency() {
 		try {
-			// L'API v1 DE VAULT, dépréciée par VaultUnlocked au profit de « vault2 », et c'est
-			// pourtant elle qu'il faut : c'est celle qu'ExcellentEconomy ENREGISTRE. Viser la v2
-			// rendrait un service absent, donc une monnaie « vault » permanente — un défaut plus
-			// difficile à voir qu'un avertissement de compilation.
+			// Vault's v1 API, deprecated by VaultUnlocked in favor of "vault2", and yet it's
+			// the one to use: it's the one ExcellentEconomy registers. Targeting v2 would find
+			// no service, so a permanent "vault" currency — a defect harder to spot than a
+			// compiler warning.
 			Economy eco = Bukkit.getServicesManager().load(Economy.class);
 			if (eco != null) {
-				String nom = eco.currencyNameSingular();
-				if (nom != null && !nom.isBlank()) {
-					return nom.toLowerCase(java.util.Locale.ROOT);
+				String name = eco.currencyNameSingular();
+				if (name != null && !name.isBlank()) {
+					return name.toLowerCase(java.util.Locale.ROOT);
 				}
 			}
 		} catch (Throwable t) {
-			plateforme.avertir("nom de monnaie Vault illisible — " + t);
+			platform.warn("could not read Vault currency name — " + t);
 		}
 		return "vault";
 	}
 
-	private static double quantile(double[] triees, double p) {
-		int i = (int) Math.min(triees.length - 1L, Math.round(p * (triees.length - 1)));
-		return triees[i];
+	private static double quantile(double[] sorted, double p) {
+		int i = (int) Math.min(sorted.length - 1L, Math.round(p * (sorted.length - 1)));
+		return sorted[i];
 	}
 
 	/**
-	 * Gini sur un tableau DÉJÀ TRIÉ, par la formule de la moyenne pondérée par le rang.
+	 * Gini on an already-sorted array, using the rank-weighted mean formula.
 	 *
-	 * <p>Elle est en O(n) là où la définition — la moitié de l'écart absolu moyen — est en O(n²).
-	 * Sur mille comptes la différence ne se verrait pas ; sur cent mille, si.
+	 * <p>This is O(n) where the definition — half the mean absolute difference — is O(n^2). On a
+	 * thousand accounts the difference wouldn't show; on a hundred thousand, it would.
 	 */
-	private static double gini(double[] triees) {
-		double somme = 0;
-		double pondere = 0;
-		for (int i = 0; i < triees.length; i++) {
-			double v = Math.max(0, triees[i]);
-			somme += v;
-			pondere += (i + 1) * v;
+	private static double gini(double[] sorted) {
+		double sum = 0;
+		double weighted = 0;
+		for (int i = 0; i < sorted.length; i++) {
+			double v = Math.max(0, sorted[i]);
+			sum += v;
+			weighted += (i + 1) * v;
 		}
-		if (somme <= 0) {
+		if (sum <= 0) {
 			return 0;
 		}
-		int n = triees.length;
-		return (2 * pondere) / (n * somme) - (n + 1.0) / n;
+		int n = sorted.length;
+		return (2 * weighted) / (n * sum) - (n + 1.0) / n;
 	}
 }

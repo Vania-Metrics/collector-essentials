@@ -1,13 +1,13 @@
-# Métriques EssentialsX : inactivité des joueurs et argent en circulation.
+# EssentialsX metrics: player inactivity and money in circulation.
 #
-# UN JAR, UNE INTÉGRATION. Le retirer retire ces métriques et rien d'autre ; s'il
-# plante, il plante seul. C'est ce que « depend » rend vrai : sans le noyau ou sans
-# EssentialsX, Bukkit ne charge pas ce plugin et le dit clairement, au lieu
-# de laisser un collecteur échouer en silence à chaque scrape.
+# One jar, one integration. Removing it removes these metrics and nothing else;
+# if it crashes, it crashes alone. That's what "depend" guarantees: without the
+# core or without EssentialsX, Bukkit refuses to load this plugin and says so
+# clearly, instead of letting a collector fail silently on every scrape.
 name: VaniaMetrics-Essentials
 version: ${version}
 main: fr.samflix.vaniametrics.module.essentials.EssentialsPaper
 api-version: '1.21'
 authors: [mc-vania]
-description: "Métriques EssentialsX : inactivité des joueurs et argent en circulation."
+description: "EssentialsX metrics: player inactivity and money in circulation."
 depend: [VaniaMetrics, Essentials]

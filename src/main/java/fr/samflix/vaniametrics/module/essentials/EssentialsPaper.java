@@ -7,30 +7,30 @@ import fr.samflix.vaniametrics.api.VaniaMetrics;
 import fr.samflix.vaniametrics.api.VaniaMetricsProvider;
 
 /**
- * EssentialsX — inactivité des joueurs, et l'argent en circulation.
+ * EssentialsX — player inactivity, and money in circulation.
  *
- * <p>C'est lui qui répond à « combien d'argent y a-t-il sur le serveur », et il y répond sans rien parcourir : EssentialsX tient déjà le total dans un cache.
+ * <p>Answers "how much money is on the server" without scanning anything: EssentialsX already
+ * keeps the total in a cache.
  *
- * <p>SON plugin.yml DÉCLARE {@code depend: [VaniaMetrics, Essentials]} : les deux sont
- * indispensables, et le déclarer laisse Bukkit garantir l'ordre de chargement plutôt que de
- * l'espérer. Retirer ce jar retire cette intégration et RIEN D'AUTRE — c'est tout l'intérêt d'un
- * jar par intégration.
+ * <p>Its plugin.yml declares {@code depend: [VaniaMetrics, Essentials]}: both are required, and
+ * declaring it lets Bukkit guarantee load order instead of hoping for it. Removing this jar
+ * removes this integration and nothing else — that's the point of one jar per integration.
  */
 public final class EssentialsPaper extends JavaPlugin {
 
-	private Collector collecteur;
+	private Collector collector;
 
 	@Override
 	public void onEnable() {
-		VaniaMetrics metriques = VaniaMetricsProvider.get();
-		collecteur = new EssentialsCollector(metriques.plateforme());
-		metriques.enregistrer(collecteur);
+		VaniaMetrics metrics = VaniaMetricsProvider.get();
+		collector = new EssentialsCollector(metrics.platform());
+		metrics.register(collector);
 	}
 
 	@Override
 	public void onDisable() {
-		if (collecteur != null) {
-			VaniaMetricsProvider.chercher().ifPresent(m -> m.retirer(collecteur));
+		if (collector != null) {
+			VaniaMetricsProvider.find().ifPresent(m -> m.unregister(collector));
 		}
 	}
 }
