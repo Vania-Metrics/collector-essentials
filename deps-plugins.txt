@@ -1,4 +1,0 @@
-# Jars des plugins tiers dont ce collecteur dépend à la COMPILATION.
-# Une ligne par URL. Aucun jar tiers n'est embarqué dans le jar produit.
-https://cdn.modrinth.com/data/hXiIvTyT/versions/nY6VN1XH/EssentialsX-2.22.0.jar
-https://cdn.modrinth.com/data/ayRaM8J7/versions/qZgRzoYs/VaultUnlocked-2.20.3.jar
